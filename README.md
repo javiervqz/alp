@@ -111,3 +111,17 @@ const Parsers = {
 - **Script Properties** required:
   - `GEMINI_API_KEY`: Your Google AI Studio API Key.
   - `NOMINA`: The Gmail label name for payroll emails.
+
+## Deployment
+
+To push your local changes to the Google Apps Script project, run:
+```bash
+clasp push
+```
+
+To commit and push these changes to your GitHub repository, run:
+```bash
+git add .
+git commit -m "Add extensible parsing, deduplication, and update documentation"
+git push origin main
+```

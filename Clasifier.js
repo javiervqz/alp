@@ -23,7 +23,7 @@ function fillMissingMappingCategories() {
   
   console.log("Starting merchant classification...");
 
-  // Recorremos desde la fila 2 (índice 1) para saltar encabezados
+
   for (let i = 1; i < data.length; i++) {
     // Check for timeout
     if (new Date().getTime() - startTime > CLASSIFIER_CONFIG.MAX_EXECUTION_TIME_MS) {
@@ -31,13 +31,12 @@ function fillMissingMappingCategories() {
       break;
     }
 
-    const merchant = data[i][0]; // Columna A: Merchant Keyword
-    const category = data[i][1]; // Columna B: Category
-    const subcategory = data[i][2]; // Columna C: Subcategory
+    const merchant = data[i][0]; // Col A: Merchant Keyword
+    const category = data[i][1]; // Col B: Category
+    const subcategory = data[i][2]; // Col C: Subcategory
 
-    // Si el Merchant existe pero la Categoría O Subcategoría están vacías
     if (merchant && (!category || !subcategory)) {
-      console.log(`Clasificando: ${merchant}...`);
+      console.log(`Classifying: ${merchant}...`);
       
       try {
         const aiResult = askGeminiForCategory(merchant, schema);
@@ -45,17 +44,17 @@ function fillMissingMappingCategories() {
         if (aiResult) {
           mappingSheet.getRange(i + 1, 2).setValue(aiResult.category);
           mappingSheet.getRange(i + 1, 3).setValue(aiResult.subcategory);
-          console.log(`Resultado: ${aiResult.category} > ${aiResult.subcategory}`);
+          console.log(`Result: ${aiResult.category} > ${aiResult.subcategory}`);
         }
         
         Utilities.sleep(CLASSIFIER_CONFIG.SAFE_SLEEP_MS); 
       } catch (e) {
-        console.error(`Error en fila ${i + 1} (${merchant}): ${e}`);
+        console.error(`Error in row ${i + 1} (${merchant}): ${e}`);
         Utilities.sleep(CLASSIFIER_CONFIG.SAFE_SLEEP_MS);
       }
     }
   }
-  console.log("Proceso de clasificación completado.");
+  console.log("Classification completed.");
 }
 
 /**

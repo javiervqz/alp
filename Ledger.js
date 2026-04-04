@@ -11,7 +11,7 @@ const CONFIG = {
   },
   GMAIL_QUERY: 'is:unread (from:santander@envio.santander.com.mx OR from:notificaciones@notificaciones.santander.com.mx OR from:nomina@ctimex.com OR from:capitalone@notification.capitalone.com)',
   LABELS: {
-    NOMINA: "Tala"
+    NOMINA: PropertiesService.getScriptProperties().getProperty('NOMINA')
   },
   COLUMNS: {
     DATE: 1,
@@ -134,8 +134,8 @@ function parseTransaction(ctx) {
 
 const Parsers = {
   capitalOne: function(body) {
-    const merchantMatch = body.match(/Merchant:\s*(.*)/i);
-    const amountMatch = body.match(/Amount:\s*\$([\d,.]+)/i);
+    const merchantMatch = body.match(/at\s+([^,]+),\s+a\s+pending/i) || body.match(/Merchant:\s*(.*)/i);
+    const amountMatch = body.match(/amount\s+of\s+\$([\d,.]+)/i) || body.match(/Amount:\s*\$([\d,.]+)/i);
     return {
       merchant: merchantMatch ? merchantMatch[1].trim() : "Capital One Purchase",
       amount: amountMatch ? parseFloat(amountMatch[1].replace(/,/g, '')) : 0

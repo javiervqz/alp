@@ -96,7 +96,7 @@ function askGeminiForCategory(merchant, schema) {
   const prompt = `
     Analyze this bank merchant: "${merchant}".
     
-    TASK 1: Determine what this merchant or service actually is. If the name is ambiguous (like "Distrito Uno (D1) (Parco)"), use your Google Search capability to find out what it is (e.g., a parking lot, a restaurant, a software service).
+    TASK 1: Determine what this merchant or service actually is based on its name (e.g., a parking lot, a restaurant, a software service).
     
     TASK 2: Assign the best Category and Subcategory from the PROVIDED LIST below based on the actual service they provide.
     - Match the Category name EXACTLY (including emojis).
@@ -113,7 +113,6 @@ function askGeminiForCategory(merchant, schema) {
     "contentType": "application/json",
     "payload": JSON.stringify({ 
       "contents": [{ "parts": [{ "text": prompt }] }],
-      "tools": [{ "googleSearch": {} }],
       "generationConfig": {
         "temperature": 0.1 // Lower temperature for more consistent results
       }

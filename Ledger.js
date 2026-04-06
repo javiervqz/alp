@@ -16,8 +16,10 @@ const CONFIG = {
   SHEETS: {
     LEDGER: "Ledger",
     MAPPING: "Mapping",
-    CATEGORIES: "Master_Categories"
+    CATEGORIES: "Master_Categories",
+    GROCERIES: "Groceries"
   },
+  GROCERY_KEYWORDS: ["alsuper", "walmart", "costco", "sams"],
   GMAIL_QUERY: `is:unread (${SUPPORTED_SENDERS.map(s => `from:${s}`).join(' OR ')})`,
   LABELS: {
     NOMINA: PropertiesService.getScriptProperties().getProperty('NOMINA')
@@ -42,10 +44,13 @@ function automateSpendingRecord() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const ledgerSheet = ss.getSheetByName(CONFIG.SHEETS.LEDGER);
   const mappingSheet = ss.getSheetByName(CONFIG.SHEETS.MAPPING);
+  const grocerySheet = ss.getSheetByName(CONFIG.SHEETS.GROCERIES) || ss.insertSheet(CONFIG.SHEETS.GROCERIES);
   
   ensureLedgerHeaders(ledgerSheet);
+  ensureLedgerHeaders(grocerySheet);
   const mappingStore = new MappingStore(mappingSheet);
   const ledgerManager = new LedgerManager(ledgerSheet);
+  const groceryManager = new LedgerManager(grocerySheet);
 
   const threads = GmailApp.search(CONFIG.GMAIL_QUERY);
   console.log(`Found ${threads.length} threads to process.`);
@@ -67,19 +72,22 @@ function automateSpendingRecord() {
       const result = parseTransaction(context);
       
       if (result && result.success) {
-        if (result.multiRow && result.rows) {
-          result.rows.forEach(row => {
+        const rows = result.multiRow ? result.rows : [result];
+        
+        rows.forEach(row => {
+          const isGrocery = CONFIG.GROCERY_KEYWORDS.some(kw => 
+            row.merchant.toLowerCase().includes(kw.toLowerCase())
+          );
+
+          if (isGrocery) {
+            groceryManager.appendTransaction(context.date, row.type, row.merchant, row.amount, row.currency);
+          } else {
             const added = ledgerManager.appendTransaction(context.date, row.type, row.merchant, row.amount, row.currency);
             if (added && row.type === "Expense") {
               mappingStore.addIfNeeded(row.merchant);
             }
-          });
-        } else {
-          const added = ledgerManager.appendTransaction(context.date, result.type, result.merchant, result.amount, result.currency);
-          if (added && result.type === "Expense") {
-            mappingStore.addIfNeeded(result.merchant);
           }
-        }
+        });
 
         finalizeEmail(msg, thread, result.isNomina);
       } else {

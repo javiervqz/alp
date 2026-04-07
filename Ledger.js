@@ -12,6 +12,11 @@ const SUPPORTED_SENDERS = [
   "contacto@parcoapp.com"
 ];
 
+const SUPPORTED_FACTURA_SENDERS = [
+  "facturacion@gruporfacil.com",
+  "jvrvzqzp@gmail.com"
+];
+
 const CONFIG = {
   SHEETS: {
     LEDGER: "Ledger",
@@ -19,8 +24,8 @@ const CONFIG = {
     CATEGORIES: "Master_Categories",
     GROCERIES: "Groceries"
   },
-  GROCERY_KEYWORDS: ["alsuper", "walmart", "costco", "sams"],
-  GMAIL_QUERY: `is:unread (${SUPPORTED_SENDERS.map(s => `from:${s}`).join(' OR ')})`,
+  GROCERY_KEYWORDS: ["alsuper", "walmart", "costco", "sams", "oxxo"],
+  GMAIL_QUERY: `is:unread (${[...SUPPORTED_SENDERS, ...SUPPORTED_FACTURA_SENDERS].map(s => `from:${s}`).join(' OR ')})`,
   LABELS: {
     NOMINA: PropertiesService.getScriptProperties().getProperty('NOMINA')
   },
@@ -28,8 +33,10 @@ const CONFIG = {
     DATE: 1,
     TYPE: 2,
     MERCHANT: 3,
-    AMOUNT: 4,
-    CURRENCY: 5
+    ITEM: 4,
+    AMOUNT: 5,
+    CURRENCY: 6,
+    ACCOUNT: 7
   },
   DEDUPLICATION: {
     TIME_WINDOW_DAYS: 3, // Prevent duplicates within 3 days
@@ -80,11 +87,14 @@ function automateSpendingRecord() {
           );
 
           if (isGrocery) {
-            groceryManager.appendTransaction(context.date, row.type, row.merchant, row.amount, row.currency);
+            groceryManager.appendTransaction(context.date, row.type, row.merchant, row.item || "", row.amount, row.currency, row.account || "");
+            if (row.type === "Expense") {
+              mappingStore.addIfNeeded(row.merchant, row.item || "");
+            }
           } else {
-            const added = ledgerManager.appendTransaction(context.date, row.type, row.merchant, row.amount, row.currency);
-            if (added && row.type === "Expense") {
-              mappingStore.addIfNeeded(row.merchant);
+            ledgerManager.appendTransaction(context.date, row.type, row.merchant, row.item || "", row.amount, row.currency, row.account || "");
+            if (row.type === "Expense") {
+              mappingStore.addIfNeeded(row.merchant, row.item || "");
             }
           }
         });
@@ -115,31 +125,35 @@ const ParserRegistry = [
     parse: (ctx) => processNomina(ctx)
   },
   {
+    match: (ctx) => SUPPORTED_FACTURA_SENDERS.some(s => ctx.from.includes(s)),
+    parse: (ctx) => processFactura(ctx)
+  },
+  {
     match: (ctx) => ctx.from.includes("capitalone"),
     parse: (ctx) => {
       const result = Parsers.capitalOne(ctx.body);
-      return { success: result.amount > 0, type: "Expense", merchant: result.merchant, amount: result.amount, currency: "USD", isNomina: false };
+      return { success: result.amount > 0, type: "Expense", merchant: result.merchant, amount: result.amount, currency: "USD", account: result.account, isNomina: false };
     }
   },
   {
     match: (ctx) => ctx.from.includes("santander"),
     parse: (ctx) => {
       const result = Parsers.santander(ctx.body, ctx.bodyHtml);
-      return { success: result.amount > 0, type: "Expense", merchant: result.merchant, amount: result.amount, currency: "MXN", isNomina: false };
+      return { success: result.amount > 0, type: "Expense", merchant: result.merchant, amount: result.amount, currency: "MXN", account: result.account, isNomina: false };
     }
   },
   {
     match: (ctx) => ctx.from.includes("bebbia.com"),
     parse: (ctx) => {
       const result = Parsers.bebbia(ctx.bodyHtml);
-      return { success: result.amount > 0, type: "Expense", merchant: result.merchant, amount: result.amount, currency: "MXN", isNomina: false };
+      return { success: result.amount > 0, type: "Expense", merchant: result.merchant, amount: result.amount, currency: "MXN", account: result.account, isNomina: false };
     }
   },
   {
     match: (ctx) => ctx.from.includes("parcoapp.com"),
     parse: (ctx) => {
       const result = Parsers.parco(ctx.bodyHtml);
-      return { success: result.amount > 0, type: "Expense", merchant: result.merchant, amount: result.amount, currency: "MXN", isNomina: false };
+      return { success: result.amount > 0, type: "Expense", merchant: result.merchant, amount: result.amount, currency: "MXN", account: result.account, isNomina: false };
     }
   }
 ];
@@ -157,9 +171,11 @@ const Parsers = {
   capitalOne: function(body) {
     const merchantMatch = body.match(/at\s+([^,]+),\s+a\s+pending/i) || body.match(/Merchant:\s*(.*)/i);
     const amountMatch = body.match(/amount\s+of\s+\$([\d,.]+)/i) || body.match(/Amount:\s*\$([\d,.]+)/i);
+    const accountMatch = body.match(/ending in (\d{4})/i);
     return {
       merchant: merchantMatch ? merchantMatch[1].trim() : "Capital One Purchase",
-      amount: amountMatch ? parseFloat(amountMatch[1].replace(/,/g, '')) : 0
+      amount: amountMatch ? parseFloat(amountMatch[1].replace(/,/g, '')) : 0,
+      account: accountMatch ? accountMatch[1] : ""
     };
   },
 
@@ -168,6 +184,9 @@ const Parsers = {
                        bodyHtml.match(/[Mm]onto:?(?:<[^>]+>)*\s*\$?([\d,.]+)/i) || 
                        bodyHtml.match(/monto\s+de\s+(?:<[^>]+>)*\$?([\d,.]+)(?:<[^>]+>)*\s+pesos/i);
     const amount = amountMatch ? parseFloat(amountMatch[1].replace(/,/g, '')) : 0;
+
+    const accountMatch = bodyHtml.match(/terminada en (\d{4})/i) || bodyHtml.match(/\*{4}(\d{4})/i) || bodyHtml.match(/cuenta\s*(?:\*{4})?(\d{4})/i);
+    const account = accountMatch ? accountMatch[1] : "";
 
     let merchant = "Santander Merchant";
     const merchantHTML = bodyHtml.match(/Comercio:?(?:<\/span>)?(?:<br>)?\s*([\w\s*.-]+?)(?:\s*<br>|\s*<span)/i);
@@ -180,7 +199,8 @@ const Parsers = {
 
     return {
       merchant: merchant.replace(/\n|\r/g, "").replace(/\s+/g, " ").trim(),
-      amount: amount
+      amount: amount,
+      account: account
     };
   },
 
@@ -189,7 +209,8 @@ const Parsers = {
     const amount = amountMatch ? parseFloat(amountMatch[1].replace(/,/g, '')) : 0;
     return {
       merchant: "Bebbia",
-      amount: amount
+      amount: amount,
+      account: "4996"
     };
   },
 
@@ -213,34 +234,11 @@ const Parsers = {
 
     return {
       merchant: merchant,
-      amount: amount
+      amount: amount,
+      account: "4996"
     };
   }
 };
-
-function processNomina(ctx) {
-  const xmlFile = ctx.attachments.find(a => a.getName().toLowerCase().endsWith('.xml'));
-  if (!xmlFile) return { success: false };
-
-  const xmlContent = xmlFile.getDataAsString();
-  const totalMatch = xmlContent.match(/\sTotal="([\d.]+)"/);
-  const netAmount = totalMatch ? parseFloat(totalMatch[1]) : 0;
-  
-  const infonavitRegex = /Concepto="DESCUENTO INFONAVIT CUOTA"\s+Importe="([\d.]+)"/;
-  const infonavitMatch = xmlContent.match(infonavitRegex);
-  const infonavitAmount = infonavitMatch ? parseFloat(infonavitMatch[1]) : 0;
-
-  if (netAmount > 0) {
-    const rows = [
-      { type: "Income", merchant: "Nómina CTIMEX (Net Pay)", amount: netAmount, currency: "MXN" }
-    ];
-    if (infonavitAmount > 0) {
-      rows.push({ type: "Expense", merchant: "Deducción Infonavit", amount: infonavitAmount, currency: "MXN" });
-    }
-    return { success: true, isNomina: true, multiRow: true, rows: rows };
-  }
-  return { success: false };
-}
 
 /**
  * Deduplication & Write Logic
@@ -259,18 +257,20 @@ class LedgerManager {
     const startRow = Math.max(2, lastRow - CONFIG.DEDUPLICATION.LOOKBACK_ROWS + 1);
     const numRows = lastRow - startRow + 1;
     
-    // Date (col 1), Type (col 2), Amount (col 4), Currency (col 5)
-    const data = this.sheet.getRange(startRow, 1, numRows, 5).getValues();
+    // Date (col 1), Type (col 2), Merchant (col 3), Item (col 4), Amount (col 5), Currency (col 6), Account (col 7)
+    const data = this.sheet.getRange(startRow, 1, numRows, 7).getValues();
     
     this.recentTransactions = data.map(row => ({
       date: new Date(row[0]),
       type: row[1],
-      amount: parseFloat(row[3]),
-      currency: row[4]
+      merchant: row[2],
+      item: row[3],
+      amount: parseFloat(row[4]),
+      currency: row[5]
     }));
   }
 
-  isDuplicate(date, type, amount, currency) {
+  isDuplicate(date, type, merchant, item, amount, currency) {
     if (type !== "Expense") return false; // Usually only expenses are duplicated via notifications
     
     const threshold = CONFIG.DEDUPLICATION.TIME_WINDOW_DAYS * 24 * 60 * 60 * 1000;
@@ -280,6 +280,10 @@ class LedgerManager {
       if (!tx.date || isNaN(tx.amount)) return false;
       if (tx.type !== type || tx.currency !== currency) return false;
       
+      // Robust check for items from facturas
+      if (tx.merchant !== merchant) return false;
+      if (tx.item !== item) return false;
+      
       const timeDiff = Math.abs(targetDate - tx.date);
       const isSameAmount = Math.abs(tx.amount - amount) < 0.01;
       
@@ -287,18 +291,20 @@ class LedgerManager {
     });
   }
 
-  appendTransaction(date, type, merchant, amount, currency) {
-    if (this.isDuplicate(date, type, amount, currency)) {
-      console.log(`Skipping duplicate transaction: ${merchant} for ${amount} ${currency}`);
+  appendTransaction(date, type, merchant, item, amount, currency, account) {
+    if (this.isDuplicate(date, type, merchant, item, amount, currency)) {
+      console.log(`Skipping duplicate transaction: ${merchant} | ${item} for ${amount} ${currency}`);
       return false; // Not added
     }
     
-    this.sheet.appendRow([date, type, merchant, amount, currency]);
+    this.sheet.appendRow([date, type, merchant, item || "", amount, currency, account || ""]);
     
     // Add to recent memory so we don't duplicate within the same batch
     this.recentTransactions.push({ 
       date: new Date(date), 
       type: type, 
+      merchant: merchant,
+      item: item || "",
       amount: amount, 
       currency: currency 
     });
@@ -313,22 +319,24 @@ class LedgerManager {
 class MappingStore {
   constructor(sheet) {
     this.sheet = sheet;
+    const existingData = sheet.getLastRow() > 1 ? sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues() : [];
     this.existingMerchants = new Set(
-      sheet.getRange("A:A").getValues().flat().filter(String)
+      existingData.map(row => `${row[0] || ""}|${row[1] || ""}`)
     );
     this.newMerchants = [];
   }
 
-  addIfNeeded(merchant) {
-    if (merchant && !this.existingMerchants.has(merchant)) {
-      this.newMerchants.push([merchant, "", ""]);
-      this.existingMerchants.add(merchant);
+  addIfNeeded(merchant, item) {
+    const key = `${merchant || ""}|${item || ""}`;
+    if ((merchant || item) && !this.existingMerchants.has(key)) {
+      this.newMerchants.push([merchant || "", item || "", "", ""]);
+      this.existingMerchants.add(key);
     }
   }
 
   save() {
     if (this.newMerchants.length > 0) {
-      this.sheet.getRange(this.sheet.getLastRow() + 1, 1, this.newMerchants.length, 3).setValues(this.newMerchants);
+      this.sheet.getRange(this.sheet.getLastRow() + 1, 1, this.newMerchants.length, 4).setValues(this.newMerchants);
       console.log(`Added ${this.newMerchants.length} new merchants to mapping.`);
     }
   }
@@ -339,16 +347,18 @@ class MappingStore {
  */
 function ensureLedgerHeaders(sheet) {
   if (sheet.getLastRow() === 0) {
-    const headers = ["Date", "Type", "Merchant / Concept", "Amount", "Currency"];
+    const headers = ["Date", "Type", "Merchant / Concept", "Item", "Amount", "Currency", "Account"];
     sheet.appendRow(headers);
-    const headerRange = sheet.getRange(1, 1, 1, 5);
+    const headerRange = sheet.getRange(1, 1, 1, 7);
     headerRange.setFontWeight("bold").setBackground("#f3f3f3");
     sheet.setFrozenRows(1);
     sheet.setColumnWidth(1, 150);
     sheet.setColumnWidth(2, 100);
     sheet.setColumnWidth(3, 300);
-    sheet.setColumnWidth(4, 100);
-    sheet.setColumnWidth(5, 80);
+    sheet.setColumnWidth(4, 250);
+    sheet.setColumnWidth(5, 100);
+    sheet.setColumnWidth(6, 80);
+    sheet.setColumnWidth(7, 80);
   }
 }
 

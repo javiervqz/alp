@@ -32,24 +32,33 @@ function fillMissingMappingCategories() {
     }
 
     const merchant = data[i][0]; // Col A: Merchant Keyword
-    const category = data[i][1]; // Col B: Category
-    const subcategory = data[i][2]; // Col C: Subcategory
+    const item = data[i][1]; // Col B: Item
+    const category = data[i][2]; // Col C: Category
+    const subcategory = data[i][3]; // Col D: Subcategory
 
-    if (merchant && (!category || !subcategory)) {
-      console.log(`Classifying: ${merchant}...`);
+    if ((merchant || item) && (!category || !subcategory)) {
+      console.log(`Classifying: ${merchant} | ${item}...`);
       
       try {
-        const aiResult = askGeminiForCategory(merchant, schema);
+        const aiResult = askGeminiForCategory(merchant, item, schema);
         
         if (aiResult) {
-          mappingSheet.getRange(i + 1, 2).setValue(aiResult.category);
-          mappingSheet.getRange(i + 1, 3).setValue(aiResult.subcategory);
+          mappingSheet.getRange(i + 1, 3).setValue(aiResult.category);
+          mappingSheet.getRange(i + 1, 4).setValue(aiResult.subcategory);
           console.log(`Result: ${aiResult.category} > ${aiResult.subcategory}`);
         }
         
         Utilities.sleep(CLASSIFIER_CONFIG.SAFE_SLEEP_MS); 
       } catch (e) {
         console.error(`Error in row ${i + 1} (${merchant}): ${e}`);
+        
+        // Stop execution entirely if we hit a quota limit or 429 error
+        const errorString = e.toString().toLowerCase();
+        if (errorString.includes("429") || errorString.includes("quota") || errorString.includes("resource_exhausted")) {
+          console.warn("Gemini API Quota exceeded. Halting classification immediately.");
+          break;
+        }
+        
         Utilities.sleep(CLASSIFIER_CONFIG.SAFE_SLEEP_MS);
       }
     }
@@ -87,18 +96,20 @@ function getMMCategorySchema() {
 /**
  * Calls Gemini API with robust error handling
  */
-function askGeminiForCategory(merchant, schema) {
+function askGeminiForCategory(merchant, item, schema) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!apiKey) throw new Error("GEMINI_API_KEY not found in Script Properties.");
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${CLASSIFIER_CONFIG.MODEL}:generateContent?key=${apiKey}`;
 
   const prompt = `
-    Analyze this bank merchant: "${merchant}".
+    Analyze this transaction.
+    Merchant: "${merchant}"
+    Item Description (if available): "${item || 'N/A'}"
     
-    TASK 1: Determine what this merchant or service actually is based on its name (e.g., a parking lot, a restaurant, a software service).
+    TASK 1: Determine what this transaction actually is based on the merchant name and/or item description.
     
-    TASK 2: Assign the best Category and Subcategory from the PROVIDED LIST below based on the actual service they provide.
+    TASK 2: Assign the best Category and Subcategory from the PROVIDED LIST below based on the actual service or product.
     - Match the Category name EXACTLY (including emojis).
     - Match the Subcategory name EXACTLY.
     - If unsure, pick the most logical one.

@@ -108,11 +108,6 @@ function automateSpendingRecord() {
 
   // Save any new mapping entries in bulk
   mappingStore.save();
-  
-  // Call classifier (assumes function exists in another file)
-  if (typeof fillMissingMappingCategories === "function") {
-    fillMissingMappingCategories();
-  }
 }
 
 /**

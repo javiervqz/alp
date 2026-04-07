@@ -39,7 +39,9 @@ This function should be tied to a time-based trigger in Google Apps Script (e.g.
 3. **Deduplication:** Before writing to the sheet, `LedgerManager.appendTransaction()` checks the last 100 rows to see if an expense with the *exact same amount, merchant, and item* already exists. If it does, the new email is considered a duplicate receipt and is skipped.
 4. **Recording:** Valid transactions are written to either the `Ledger` or `Groceries` sheet depending on the merchant name. Unique Merchant + Item combinations are saved to the `Mapping` sheet cache.
 5. **Cleanup:** Processed emails are marked as read and trashed (or archived for payroll).
-6. **Classification:** Finally, `fillMissingMappingCategories()` (from `Clasifier.js`) is called to use the Gemini API to asynchronously assign categories to any new unmapped items, safely handling API quotas.
+
+### Independent Background Tasks
+- **Classification:** `fillMissingMappingCategories()` (from `Clasifier.js`) should be tied to a separate daily trigger. It uses the Gemini API to asynchronously assign categories to any new unmapped items that were cached by the orchestrator, safely handling API quotas.
 
 ---
 

@@ -277,7 +277,7 @@ class LedgerManager {
       
       // Robust check for items from facturas
       if (tx.merchant !== merchant) return false;
-      if (tx.item !== item) return false;
+      if (!this.isGrocery && tx.item !== item) return false;
       
       const timeDiff = Math.abs(targetDate - tx.date);
       const isSameAmount = Math.abs(tx.amount - amount) < 0.01;
@@ -340,20 +340,34 @@ class MappingStore {
 /**
  * Ensures Ledger sheet is initialized correctly
  */
-function ensureLedgerHeaders(sheet) {
+function ensureLedgerHeaders(sheet, isGrocery = false) {
   if (sheet.getLastRow() === 0) {
-    const headers = ["Date", "Type", "Merchant / Concept", "Item", "Amount", "Currency", "Account"];
-    sheet.appendRow(headers);
-    const headerRange = sheet.getRange(1, 1, 1, 7);
-    headerRange.setFontWeight("bold").setBackground("#f3f3f3");
-    sheet.setFrozenRows(1);
-    sheet.setColumnWidth(1, 150);
-    sheet.setColumnWidth(2, 100);
-    sheet.setColumnWidth(3, 300);
-    sheet.setColumnWidth(4, 250);
-    sheet.setColumnWidth(5, 100);
-    sheet.setColumnWidth(6, 80);
-    sheet.setColumnWidth(7, 80);
+    if (isGrocery) {
+      const headers = ["Date", "Type", "Merchant / Concept", "Amount", "Currency", "Account"];
+      sheet.appendRow(headers);
+      const headerRange = sheet.getRange(1, 1, 1, 6);
+      headerRange.setFontWeight("bold").setBackground("#f3f3f3");
+      sheet.setFrozenRows(1);
+      sheet.setColumnWidth(1, 150);
+      sheet.setColumnWidth(2, 100);
+      sheet.setColumnWidth(3, 300);
+      sheet.setColumnWidth(4, 100);
+      sheet.setColumnWidth(5, 80);
+      sheet.setColumnWidth(6, 80);
+    } else {
+      const headers = ["Date", "Type", "Merchant / Concept", "Item", "Amount", "Currency", "Account"];
+      sheet.appendRow(headers);
+      const headerRange = sheet.getRange(1, 1, 1, 7);
+      headerRange.setFontWeight("bold").setBackground("#f3f3f3");
+      sheet.setFrozenRows(1);
+      sheet.setColumnWidth(1, 150);
+      sheet.setColumnWidth(2, 100);
+      sheet.setColumnWidth(3, 300);
+      sheet.setColumnWidth(4, 250);
+      sheet.setColumnWidth(5, 100);
+      sheet.setColumnWidth(6, 80);
+      sheet.setColumnWidth(7, 80);
+    }
   }
 }
 

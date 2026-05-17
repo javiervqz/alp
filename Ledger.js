@@ -419,13 +419,13 @@ function onEdit(event) {
     if (!doneSheet) {
       doneSheet = spreadsheet.insertSheet("done");
       const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues();
-      doneSheet.appendRow(headers[0]);
+      doneSheet.appendRow(headers[0].slice(1));
     }
 
     const numCols = sheet.getLastColumn();
     const rowData = sheet.getRange(row, 1, 1, numCols).getValues()[0];
     
-    doneSheet.appendRow(rowData);
+    doneSheet.appendRow(rowData.slice(1));
     sheet.deleteRow(row);
   }
 }

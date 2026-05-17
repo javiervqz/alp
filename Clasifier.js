@@ -14,8 +14,8 @@ const CLASSIFIER_CONFIG = {
  */
 function fillMissingMappingCategories() {
   const startTime = new Date().getTime();
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const mappingSheet = ss.getSheetByName(CONFIG.SHEETS.MAPPING);
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const mappingSheet = spreadsheet.getSheetByName(CONFIG.SHEETS.MAPPING);
   if (!mappingSheet) return;
 
   const data = mappingSheet.getDataRange().getValues();
@@ -49,11 +49,11 @@ function fillMissingMappingCategories() {
         }
         
         Utilities.sleep(CLASSIFIER_CONFIG.SAFE_SLEEP_MS); 
-      } catch (e) {
-        console.error(`Error in row ${i + 1} (${merchant}): ${e}`);
+      } catch (error) {
+        console.error(`Error in row ${i + 1} (${merchant}): ${error}`);
         
         // Stop execution entirely if we hit a quota limit or 429 error
-        const errorString = e.toString().toLowerCase();
+        const errorString = error.toString().toLowerCase();
         if (errorString.includes("429") || errorString.includes("quota") || errorString.includes("resource_exhausted")) {
           console.warn("Gemini API Quota exceeded. Halting classification immediately.");
           break;
@@ -70,8 +70,8 @@ function fillMissingMappingCategories() {
  * Builds the category schema for the prompt
  */
 function getMMCategorySchema() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const catSheet = ss.getSheetByName(CONFIG.SHEETS.CATEGORIES);
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const catSheet = spreadsheet.getSheetByName(CONFIG.SHEETS.CATEGORIES);
   if (!catSheet) return "No schema found";
 
   const data = catSheet.getDataRange().getValues();
@@ -79,15 +79,15 @@ function getMMCategorySchema() {
   let currentCat = "";
 
   for (let i = 0; i < data.length; i++) {
-    let cat = data[i][0] ? data[i][0].toString().trim() : "";
-    let sub = data[i][1] ? data[i][1].toString().trim() : "";
+    let categoryName = data[i][0] ? data[i][0].toString().trim() : "";
+    let subcategoryName = data[i][1] ? data[i][1].toString().trim() : "";
     
-    if (cat !== "") {
-      currentCat = cat;
+    if (categoryName !== "") {
+      currentCat = categoryName;
       schemaString += `\n- ${currentCat}: `;
     }
-    if (sub !== "" && currentCat !== "") {
-      schemaString += `${sub}, `;
+    if (subcategoryName !== "" && currentCat !== "") {
+      schemaString += `${subcategoryName}, `;
     }
   }
   return schemaString;

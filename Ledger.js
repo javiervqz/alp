@@ -26,18 +26,19 @@ const CONFIG = {
     GROCERIES: "Groceries"
   },
   GROCERY_KEYWORDS: ["alsuper", "walmart", "costco", "sams", "oxxo"],
-  GMAIL_QUERY: `is:unread (${[...SUPPORTED_SENDERS, ...SUPPORTED_FACTURA_SENDERS].map(s => `from:${s}`).join(' OR ')})`,
+  GMAIL_QUERY: `is:unread (${[...SUPPORTED_SENDERS, ...SUPPORTED_FACTURA_SENDERS].map(sender => `from:${sender}`).join(' OR ')})`,
   LABELS: {
     NOMINA: PropertiesService.getScriptProperties().getProperty('NOMINA')
   },
   COLUMNS: {
-    DATE: 1,
-    TYPE: 2,
-    MERCHANT: 3,
-    ITEM: 4,
-    AMOUNT: 5,
-    CURRENCY: 6,
-    ACCOUNT: 7
+    DONE: 1,
+    DATE: 2,
+    TYPE: 3,
+    MERCHANT: 4,
+    ITEM: 5,
+    AMOUNT: 6,
+    CURRENCY: 7,
+    ACCOUNT: 8
   },
   DEDUPLICATION: {
     TIME_WINDOW_DAYS: 3, // Prevent duplicates within 3 days
@@ -49,13 +50,13 @@ const CONFIG = {
  * Main Orchestrator
  */
 function automateSpendingRecord() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const ledgerSheet = ss.getSheetByName(CONFIG.SHEETS.LEDGER);
-  const mappingSheet = ss.getSheetByName(CONFIG.SHEETS.MAPPING);
-  const grocerySheet = ss.getSheetByName(CONFIG.SHEETS.GROCERIES) || ss.insertSheet(CONFIG.SHEETS.GROCERIES);
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const ledgerSheet = spreadsheet.getSheetByName(CONFIG.SHEETS.LEDGER);
+  const mappingSheet = spreadsheet.getSheetByName(CONFIG.SHEETS.MAPPING);
+  const grocerySheet = spreadsheet.getSheetByName(CONFIG.SHEETS.GROCERIES) || spreadsheet.insertSheet(CONFIG.SHEETS.GROCERIES);
   
   ensureLedgerHeaders(ledgerSheet);
-  ensureLedgerHeaders(grocerySheet);
+  ensureLedgerHeaders(grocerySheet, true);
   const mappingStore = new MappingStore(mappingSheet);
   const ledgerManager = new LedgerManager(ledgerSheet);
   const groceryManager = new LedgerManager(grocerySheet);
@@ -66,15 +67,15 @@ function automateSpendingRecord() {
   threads.forEach(thread => {
     const messages = thread.getMessages();
     
-    messages.forEach(msg => {
-      if (!msg.isUnread()) return;
+    messages.forEach(message => {
+      if (!message.isUnread()) return;
 
       const context = {
-        from: msg.getFrom().toLowerCase(),
-        date: msg.getDate(),
-        body: msg.getPlainBody(),
-        bodyHtml: msg.getBody(),
-        attachments: msg.getAttachments()
+        from: message.getFrom().toLowerCase(),
+        date: message.getDate(),
+        body: message.getPlainBody(),
+        bodyHtml: message.getBody(),
+        attachments: message.getAttachments()
       };
 
       const result = parseTransaction(context);
@@ -83,8 +84,8 @@ function automateSpendingRecord() {
         const rows = result.multiRow ? result.rows : [result];
         
         rows.forEach(row => {
-          const isGrocery = CONFIG.GROCERY_KEYWORDS.some(kw => 
-            row.merchant.toLowerCase().includes(kw.toLowerCase())
+          const isGrocery = CONFIG.GROCERY_KEYWORDS.some(keyword => 
+            row.merchant.toLowerCase().includes(keyword.toLowerCase())
           );
 
           if (isGrocery) {
@@ -100,9 +101,9 @@ function automateSpendingRecord() {
           }
         });
 
-        finalizeEmail(msg, thread, result.isNomina);
+        finalizeEmail(message, thread, result.isNomina);
       } else {
-        msg.markRead(); // Still mark as read even if failed to parse, to avoid loops
+        message.markRead(); // Still mark as read even if failed to parse, to avoid loops
       }
     });
   });
@@ -117,47 +118,47 @@ function automateSpendingRecord() {
  */
 const ParserRegistry = [
   {
-    match: (ctx) => ctx.from.includes("nomina@ctimex.com"),
-    parse: (ctx) => processNomina(ctx)
+    match: (context) => context.from.includes("nomina@ctimex.com"),
+    parse: (context) => processNomina(context)
   },
   {
-    match: (ctx) => SUPPORTED_FACTURA_SENDERS.some(s => ctx.from.includes(s)),
-    parse: (ctx) => processFactura(ctx)
+    match: (context) => SUPPORTED_FACTURA_SENDERS.some(sender => context.from.includes(sender)),
+    parse: (context) => processFactura(context)
   },
   {
-    match: (ctx) => ctx.from.includes("capitalone"),
-    parse: (ctx) => {
-      const result = Parsers.capitalOne(ctx.body);
+    match: (context) => context.from.includes("capitalone"),
+    parse: (context) => {
+      const result = Parsers.capitalOne(context.body);
       return { success: result.amount > 0, type: "Expense", merchant: result.merchant, amount: result.amount, currency: "USD", account: result.account, isNomina: false };
     }
   },
   {
-    match: (ctx) => ctx.from.includes("santander"),
-    parse: (ctx) => {
-      const result = Parsers.santander(ctx.body, ctx.bodyHtml);
+    match: (context) => context.from.includes("santander"),
+    parse: (context) => {
+      const result = Parsers.santander(context.body, context.bodyHtml);
       return { success: result.amount > 0, type: "Expense", merchant: result.merchant, amount: result.amount, currency: "MXN", account: result.account, isNomina: false };
     }
   },
   {
-    match: (ctx) => ctx.from.includes("bebbia.com"),
-    parse: (ctx) => {
-      const result = Parsers.bebbia(ctx.bodyHtml);
+    match: (context) => context.from.includes("bebbia.com"),
+    parse: (context) => {
+      const result = Parsers.bebbia(context.bodyHtml);
       return { success: result.amount > 0, type: "Expense", merchant: result.merchant, amount: result.amount, currency: "MXN", account: result.account, isNomina: false };
     }
   },
   {
-    match: (ctx) => ctx.from.includes("parcoapp.com"),
-    parse: (ctx) => {
-      const result = Parsers.parco(ctx.bodyHtml);
+    match: (context) => context.from.includes("parcoapp.com"),
+    parse: (context) => {
+      const result = Parsers.parco(context.bodyHtml);
       return { success: result.amount > 0, type: "Expense", merchant: result.merchant, amount: result.amount, currency: "MXN", account: result.account, isNomina: false };
     }
   }
 ];
 
-function parseTransaction(ctx) {
+function parseTransaction(context) {
   for (const parser of ParserRegistry) {
-    if (parser.match(ctx)) {
-      return parser.parse(ctx);
+    if (parser.match(context)) {
+      return parser.parse(context);
     }
   }
   return { success: false };
@@ -276,16 +277,16 @@ class LedgerManager {
     const threshold = CONFIG.DEDUPLICATION.TIME_WINDOW_DAYS * 24 * 60 * 60 * 1000;
     const targetDate = new Date(date);
     
-    return this.recentTransactions.some(tx => {
-      if (!tx.date || isNaN(tx.amount)) return false;
-      if (tx.type !== type || tx.currency !== currency) return false;
+    return this.recentTransactions.some(transaction => {
+      if (!transaction.date || isNaN(transaction.amount)) return false;
+      if (transaction.type !== type || transaction.currency !== currency) return false;
       
       // Robust check for items from facturas
-      if (tx.merchant !== merchant) return false;
-      if (!this.isGrocery && tx.item !== item) return false;
+      if (transaction.merchant !== merchant) return false;
+      if (!this.isGrocery && transaction.item !== item) return false;
       
-      const timeDiff = Math.abs(targetDate - tx.date);
-      const isSameAmount = Math.abs(tx.amount - amount) < 0.01;
+      const timeDiff = Math.abs(targetDate - transaction.date);
+      const isSameAmount = Math.abs(transaction.amount - amount) < 0.01;
       
       return timeDiff <= threshold && isSameAmount;
     });
@@ -384,12 +385,12 @@ function ensureLedgerHeaders(sheet, isGrocery = false) {
 /**
  * Final Disposition of Email
  */
-function finalizeEmail(msg, thread, isNomina) {
-  msg.markRead();
+function finalizeEmail(message, thread, isNomina) {
+  message.markRead();
   if (isNomina) {
     fileToLabel(thread, CONFIG.LABELS.NOMINA);
   } else {
-    msg.moveToTrash();
+    message.moveToTrash();
   }
 }
 
@@ -412,11 +413,11 @@ function onEdit(event) {
     const row = event.range.getRow();
     if (row === 1) return; // Ignore header
 
-    const ss = event.source;
-    let doneSheet = ss.getSheetByName("done");
+    const spreadsheet = event.source;
+    let doneSheet = spreadsheet.getSheetByName("done");
     
     if (!doneSheet) {
-      doneSheet = ss.insertSheet("done");
+      doneSheet = spreadsheet.insertSheet("done");
       const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues();
       doneSheet.appendRow(headers[0]);
     }

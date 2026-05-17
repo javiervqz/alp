@@ -3,8 +3,8 @@
  * Consolidates all email attachment XML parsing logic.
  */
 
-function processNomina(ctx) {
-  const xmlFile = ctx.attachments.find(a => a.getName().toLowerCase().endsWith('.xml'));
+function processNomina(context) {
+  const xmlFile = context.attachments.find(attachment => attachment.getName().toLowerCase().endsWith('.xml'));
   if (!xmlFile) return { success: false };
 
   const xmlContent = xmlFile.getDataAsString();
@@ -27,8 +27,8 @@ function processNomina(ctx) {
   return { success: false };
 }
 
-function processFactura(ctx) {
-  const xmlFile = ctx.attachments.find(a => a.getName().toLowerCase().endsWith('.xml'));
+function processFactura(context) {
+  const xmlFile = context.attachments.find(attachment => attachment.getName().toLowerCase().endsWith('.xml'));
   if (!xmlFile) return { success: false };
 
   try {
@@ -79,8 +79,8 @@ function processFactura(ctx) {
 
     return { success: true, isNomina: false, multiRow: true, rows: rows };
     
-  } catch (e) {
-    console.error(`Error parsing factura XML: ${e}`);
+  } catch (error) {
+    console.error(`Error parsing factura XML: ${error}`);
   }
   
   return { success: false };

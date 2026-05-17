@@ -14,7 +14,8 @@ const SUPPORTED_SENDERS = [
 
 const SUPPORTED_FACTURA_SENDERS = [
   "facturacion@gruporfacil.com",
-  "jvrvzqzp@gmail.com"
+  "jvrvzqzp@gmail.com",
+  "facturacion@alsuper.com"
 ];
 
 const CONFIG = {

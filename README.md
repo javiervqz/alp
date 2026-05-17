@@ -59,15 +59,19 @@ This function should be tied to a time-based trigger in Google Apps Script (e.g.
 
 The system expects the following sheets to exist (or will create them):
 
-### 1. Ledger / Groceries Sheet (7 Columns)
-| Date | Type | Merchant / Concept | Item | Amount | Currency | Account |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+### 1. Ledger Sheet (8 Columns)
+| done | Date | Type | Merchant / Concept | Item | Amount | Currency | Account |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 
-### 2. Mapping Sheet (4 Columns)
+### 2. Groceries Sheet (6 Columns)
+| Date | Type | Merchant / Concept | Amount | Currency | Account |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+
+### 3. Mapping Sheet (4 Columns)
 | Merchant Keyword | Item | Category | Subcategory |
 | :--- | :--- | :--- | :--- |
 
-### 3. Master_Categories Sheet (2 Columns)
+### 4. Master_Categories Sheet (2 Columns)
 | Category | Subcategory |
 | :--- | :--- |
 

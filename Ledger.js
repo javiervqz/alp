@@ -402,17 +402,17 @@ function fileToLabel(thread, labelName) {
   thread.moveToArchive();
 }
 
-function onEdit(e) {
-  if (!e || !e.range) return;
-  const sheet = e.range.getSheet();
+function onEdit(event) {
+  if (!event || !event.range) return;
+  const sheet = event.range.getSheet();
   if (sheet.getName() !== CONFIG.SHEETS.LEDGER) return;
   
   // Check if the edit is in column 1 (Column A) and value is checked
-  if (e.range.getColumn() === 1 && (e.value === "TRUE" || e.value === true)) {
-    const row = e.range.getRow();
+  if (event.range.getColumn() === 1 && (event.value === "TRUE" || event.value === true)) {
+    const row = event.range.getRow();
     if (row === 1) return; // Ignore header
 
-    const ss = e.source;
+    const ss = event.source;
     let doneSheet = ss.getSheetByName("done");
     
     if (!doneSheet) {

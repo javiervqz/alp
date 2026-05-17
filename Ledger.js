@@ -242,6 +242,7 @@ const Parsers = {
 class LedgerManager {
   constructor(sheet) {
     this.sheet = sheet;
+    this.isLedger = sheet.getName() === CONFIG.SHEETS.LEDGER;
     this.recentTransactions = [];
     this.loadRecent();
   }
@@ -253,17 +254,20 @@ class LedgerManager {
     const startRow = Math.max(2, lastRow - CONFIG.DEDUPLICATION.LOOKBACK_ROWS + 1);
     const numRows = lastRow - startRow + 1;
     
-    // Date (col 1), Type (col 2), Merchant (col 3), Item (col 4), Amount (col 5), Currency (col 6), Account (col 7)
-    const data = this.sheet.getRange(startRow, 1, numRows, 7).getValues();
+    const cols = this.isLedger ? 8 : 7;
+    const data = this.sheet.getRange(startRow, 1, numRows, cols).getValues();
     
-    this.recentTransactions = data.map(row => ({
-      date: new Date(row[0]),
-      type: row[1],
-      merchant: row[2],
-      item: row[3],
-      amount: parseFloat(row[4]),
-      currency: row[5]
-    }));
+    this.recentTransactions = data.map(row => {
+      const offset = this.isLedger ? 1 : 0;
+      return {
+        date: new Date(row[offset + 0]),
+        type: row[offset + 1],
+        merchant: row[offset + 2],
+        item: row[offset + 3],
+        amount: parseFloat(row[offset + 4]),
+        currency: row[offset + 5]
+      };
+    });
   }
 
   isDuplicate(date, type, merchant, item, amount, currency) {
@@ -293,7 +297,11 @@ class LedgerManager {
       return false; // Not added
     }
     
-    this.sheet.appendRow([date, type, merchant, item || "", amount, currency, account || ""]);
+    const rowData = this.isLedger 
+      ? [false, date, type, merchant, item || "", amount, currency, account || ""]
+      : [date, type, merchant, item || "", amount, currency, account || ""];
+      
+    this.sheet.appendRow(rowData);
     
     // Add to recent memory so we don't duplicate within the same batch
     this.recentTransactions.push({ 
@@ -356,18 +364,19 @@ function ensureLedgerHeaders(sheet, isGrocery = false) {
       sheet.setColumnWidth(5, 80);
       sheet.setColumnWidth(6, 80);
     } else {
-      const headers = ["Date", "Type", "Merchant / Concept", "Item", "Amount", "Currency", "Account"];
+      const headers = ["done", "Date", "Type", "Merchant / Concept", "Item", "Amount", "Currency", "Account"];
       sheet.appendRow(headers);
-      const headerRange = sheet.getRange(1, 1, 1, 7);
+      const headerRange = sheet.getRange(1, 1, 1, 8);
       headerRange.setFontWeight("bold").setBackground("#f3f3f3");
       sheet.setFrozenRows(1);
-      sheet.setColumnWidth(1, 150);
-      sheet.setColumnWidth(2, 100);
-      sheet.setColumnWidth(3, 300);
-      sheet.setColumnWidth(4, 250);
-      sheet.setColumnWidth(5, 100);
-      sheet.setColumnWidth(6, 80);
+      sheet.setColumnWidth(1, 50);
+      sheet.setColumnWidth(2, 150);
+      sheet.setColumnWidth(3, 100);
+      sheet.setColumnWidth(4, 300);
+      sheet.setColumnWidth(5, 250);
+      sheet.setColumnWidth(6, 100);
       sheet.setColumnWidth(7, 80);
+      sheet.setColumnWidth(8, 80);
     }
   }
 }
@@ -391,4 +400,31 @@ function fileToLabel(thread, labelName) {
   }
   label.addToThread(thread);
   thread.moveToArchive();
+}
+
+function onEdit(e) {
+  if (!e || !e.range) return;
+  const sheet = e.range.getSheet();
+  if (sheet.getName() !== CONFIG.SHEETS.LEDGER) return;
+  
+  // Check if the edit is in column 1 (Column A) and value is checked
+  if (e.range.getColumn() === 1 && (e.value === "TRUE" || e.value === true)) {
+    const row = e.range.getRow();
+    if (row === 1) return; // Ignore header
+
+    const ss = e.source;
+    let doneSheet = ss.getSheetByName("done");
+    
+    if (!doneSheet) {
+      doneSheet = ss.insertSheet("done");
+      const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues();
+      doneSheet.appendRow(headers[0]);
+    }
+
+    const numCols = sheet.getLastColumn();
+    const rowData = sheet.getRange(row, 1, 1, numCols).getValues()[0];
+    
+    doneSheet.appendRow(rowData);
+    sheet.deleteRow(row);
+  }
 }

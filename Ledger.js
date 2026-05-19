@@ -15,7 +15,8 @@ const SUPPORTED_SENDERS = [
 const SUPPORTED_FACTURA_SENDERS = [
   "facturacion@gruporfacil.com",
   "jvrvzqzp@gmail.com",
-  "facturacion@alsuper.com"
+  "facturacion@alsuper.com",
+  "costco.com.mx"
 ];
 
 const CONFIG = {
@@ -84,20 +85,17 @@ function automateSpendingRecord() {
         const rows = result.multiRow ? result.rows : [result];
         
         rows.forEach(row => {
-          const isGrocery = CONFIG.GROCERY_KEYWORDS.some(keyword => 
+          const isGrocery = !result.isFactura && CONFIG.GROCERY_KEYWORDS.some(keyword => 
             row.merchant.toLowerCase().includes(keyword.toLowerCase())
           );
 
+          ledgerManager.appendTransaction(context.date, row.type, row.merchant, row.item || "", row.amount, row.currency, row.account || "");
+          if (row.type === "Expense") {
+            mappingStore.addIfNeeded(row.merchant, row.item || "");
+          }
+
           if (isGrocery) {
             groceryManager.appendTransaction(context.date, row.type, row.merchant, row.item || "", row.amount, row.currency, row.account || "");
-            if (row.type === "Expense") {
-              mappingStore.addIfNeeded(row.merchant, row.item || "");
-            }
-          } else {
-            ledgerManager.appendTransaction(context.date, row.type, row.merchant, row.item || "", row.amount, row.currency, row.account || "");
-            if (row.type === "Expense") {
-              mappingStore.addIfNeeded(row.merchant, row.item || "");
-            }
           }
         });
 
@@ -284,6 +282,7 @@ class LedgerManager {
       
       // Robust check for items from facturas
       if (transaction.merchant !== merchant) return false;
+      if (item && transaction.item !== item) return false; // Always check item description if provided
       if (!this.isGrocery && transaction.item !== item) return false;
       
       const timeDiff = Math.abs(targetDate - transaction.date);

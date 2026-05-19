@@ -48,10 +48,12 @@ function processFactura(context) {
       
       const descMatch = isolatedBlock.match(/Descripcion="([^"]+)"/i);
       const importeMatch = isolatedBlock.match(/Importe="([\d.]+)"/i);
+      const descuentoMatch = isolatedBlock.match(/Descuento="([\d.]+)"/i);
       
       if (descMatch && importeMatch) {
         let descripcion = descMatch[1];
         let importe = parseFloat(importeMatch[1]);
+        let descuento = descuentoMatch ? parseFloat(descuentoMatch[1]) : 0;
         
         // Find all taxes (Traslados like IVA and IEPS) inside this specific block
         const taxRegex = /<cfdi:Traslado[^>]*Importe="([\d.]+)"/gi;
@@ -63,7 +65,7 @@ function processFactura(context) {
         
         items.push({
           descripcion: descripcion,
-          importe: importe + totalTaxes
+          importe: importe - descuento + totalTaxes
         });
       }
     }
@@ -80,7 +82,7 @@ function processFactura(context) {
       account: ""
     }));
 
-    return { success: true, isNomina: false, multiRow: true, rows: rows };
+    return { success: true, isNomina: false, isFactura: true, multiRow: true, rows: rows };
     
   } catch (error) {
     console.error(`Error parsing factura XML: ${error}`);

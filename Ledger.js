@@ -244,6 +244,7 @@ class LedgerManager {
   constructor(sheet) {
     this.sheet = sheet;
     this.isLedger = sheet.getName() === CONFIG.SHEETS.LEDGER;
+    this.isGrocery = sheet.getName() === CONFIG.SHEETS.GROCERIES;
     this.recentTransactions = [];
     this.loadRecent();
   }
@@ -302,7 +303,38 @@ class LedgerManager {
       ? [false, date, type, merchant, item || "", amount, currency, account || ""]
       : [date, type, merchant, item || "", amount, currency, account || ""];
       
-    this.sheet.appendRow(rowData);
+    // Smart append to avoid skipping over pre-filled checkbox columns
+    const lastRow = this.sheet.getLastRow();
+    let targetRow = -1;
+    
+    if (lastRow > 1) {
+      const dateCol = this.isLedger ? 2 : 1;
+      const checkRows = Math.min(lastRow, 500); // Check up to 500 rows up
+      const startCheck = lastRow - checkRows + 1;
+      const dates = this.sheet.getRange(startCheck, dateCol, checkRows, 1).getValues();
+      
+      for (let i = checkRows - 1; i >= 0; i--) {
+        if (dates[i][0] === "") {
+          targetRow = startCheck + i;
+        } else {
+          break; // Hit actual data
+        }
+      }
+    }
+
+    if (targetRow !== -1) {
+      this.sheet.getRange(targetRow, 1, 1, rowData.length).setValues([rowData]);
+    } else {
+      this.sheet.appendRow(rowData);
+      targetRow = this.sheet.getLastRow();
+    }
+
+    // Format the first column as a checkbox if this is the Ledger sheet
+    if (this.isLedger) {
+      this.sheet.getRange(targetRow, 1).insertCheckboxes();
+    }
+
+    console.log(`Added transaction to ${this.sheet.getName()}: ${merchant} | ${item} for ${amount} ${currency}`);
     
     // Add to recent memory so we don't duplicate within the same batch
     this.recentTransactions.push({ 
@@ -353,19 +385,20 @@ class MappingStore {
 function ensureLedgerHeaders(sheet, isGrocery = false) {
   if (sheet.getLastRow() === 0) {
     if (isGrocery) {
-      const headers = ["Date", "Type", "Merchant / Concept", "Amount", "Currency", "Account"];
+      const headers = ["Date", "Type", "Merchant / Concept", "Item", "Amount", "Currency", "Account"];
       sheet.appendRow(headers);
-      const headerRange = sheet.getRange(1, 1, 1, 6);
+      const headerRange = sheet.getRange(1, 1, 1, 7);
       headerRange.setFontWeight("bold").setBackground("#f3f3f3");
       sheet.setFrozenRows(1);
       sheet.setColumnWidth(1, 150);
       sheet.setColumnWidth(2, 100);
       sheet.setColumnWidth(3, 300);
-      sheet.setColumnWidth(4, 100);
-      sheet.setColumnWidth(5, 80);
+      sheet.setColumnWidth(4, 250);
+      sheet.setColumnWidth(5, 100);
       sheet.setColumnWidth(6, 80);
+      sheet.setColumnWidth(7, 80);
     } else {
-      const headers = ["done", "Date", "Type", "Merchant / Concept", "Item", "Amount", "Currency", "Account"];
+      const headers = ["Done", "Date", "Type", "Merchant / Concept", "Item", "Amount", "Currency", "Account"];
       sheet.appendRow(headers);
       const headerRange = sheet.getRange(1, 1, 1, 8);
       headerRange.setFontWeight("bold").setBackground("#f3f3f3");

@@ -43,24 +43,27 @@ function processFactura(context) {
     const items = [];
     
     for (const block of conceptoBlocks) {
-      const descMatch = block.match(/Descripcion="([^"]+)"/i);
-      const importeMatch = block.match(/Importe="([\d.]+)"/i);
+      // Isolate the Concepto block to avoid matching global taxes at the end of the file
+      const isolatedBlock = block.split(/<\/cfdi:Concepto>/i)[0];
+      
+      const descMatch = isolatedBlock.match(/Descripcion="([^"]+)"/i);
+      const importeMatch = isolatedBlock.match(/Importe="([\d.]+)"/i);
       
       if (descMatch && importeMatch) {
         let descripcion = descMatch[1];
         let importe = parseFloat(importeMatch[1]);
         
-        // Find IVA inside this specific block
-        const ivaRegex = /<cfdi:Traslado[^>]*Impuesto="002"[^>]*Importe="([\d.]+)"/gi;
-        let ivaMatch;
-        let totalIva = 0;
-        while ((ivaMatch = ivaRegex.exec(block)) !== null) {
-          totalIva += parseFloat(ivaMatch[1]);
+        // Find all taxes (Traslados like IVA and IEPS) inside this specific block
+        const taxRegex = /<cfdi:Traslado[^>]*Importe="([\d.]+)"/gi;
+        let taxMatch;
+        let totalTaxes = 0;
+        while ((taxMatch = taxRegex.exec(isolatedBlock)) !== null) {
+          totalTaxes += parseFloat(taxMatch[1]);
         }
         
         items.push({
           descripcion: descripcion,
-          importe: importe + totalIva
+          importe: importe + totalTaxes
         });
       }
     }

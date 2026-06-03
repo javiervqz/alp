@@ -23,6 +23,9 @@ function fillMissingMappingCategories() {
   
   console.log("Starting merchant classification...");
 
+  const batchSize = 15; // Process 15 items per API call
+  let batch = [];
+  let updated = false;
 
   for (let i = 1; i < data.length; i++) {
     // Check for timeout
@@ -37,20 +40,33 @@ function fillMissingMappingCategories() {
     const subcategory = data[i][3]; // Col D: Subcategory
 
     if ((merchant || item) && (!category || !subcategory)) {
-      console.log(`Classifying: ${merchant} | ${item}...`);
+      batch.push({ index: i, merchant, item });
+    }
+    
+    // If we reached batch size, or we are at the last row and have items in the batch
+    if (batch.length === batchSize || (i === data.length - 1 && batch.length > 0)) {
+      console.log(`Classifying batch of ${batch.length} items...`);
       
       try {
-        const aiResult = askGeminiForCategory(merchant, item, schema);
+        const aiResults = askGeminiForCategories(batch, schema);
         
-        if (aiResult) {
-          mappingSheet.getRange(i + 1, 3).setValue(aiResult.category);
-          mappingSheet.getRange(i + 1, 4).setValue(aiResult.subcategory);
-          console.log(`Result: ${aiResult.category} > ${aiResult.subcategory}`);
+        for (let j = 0; j < aiResults.length; j++) {
+          const res = aiResults[j];
+          const target = batch[res.id] || batch[j]; // Fallback to array index if AI omitted ID
+          
+          if (target && res.category) {
+             data[target.index][2] = res.category;
+             data[target.index][3] = res.subcategory || "";
+             updated = true;
+             console.log(`Result for ${target.merchant}: ${res.category} > ${res.subcategory}`);
+          }
         }
         
-        Utilities.sleep(CLASSIFIER_CONFIG.SAFE_SLEEP_MS); 
+        if (i < data.length - 1) {
+           Utilities.sleep(CLASSIFIER_CONFIG.SAFE_SLEEP_MS); 
+        }
       } catch (error) {
-        console.error(`Error in row ${i + 1} (${merchant}): ${error}`);
+        console.error(`Error processing batch: ${error}`);
         
         // Stop execution entirely if we hit a quota limit or 429 error
         const errorString = error.toString().toLowerCase();
@@ -61,8 +77,16 @@ function fillMissingMappingCategories() {
         
         Utilities.sleep(CLASSIFIER_CONFIG.SAFE_SLEEP_MS);
       }
+      
+      batch = [];
     }
   }
+
+  // Bulk write back to the spreadsheet for performance
+  if (updated) {
+    mappingSheet.getDataRange().setValues(data);
+  }
+
   console.log("Classification completed.");
 }
 
@@ -94,29 +118,40 @@ function getMMCategorySchema() {
 }
 
 /**
- * Calls Gemini API with robust error handling
+ * Calls Gemini API with batch structured output handling
  */
-function askGeminiForCategory(merchant, item, schema) {
+function askGeminiForCategories(itemsToClassify, schema) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!apiKey) throw new Error("GEMINI_API_KEY not found in Script Properties.");
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${CLASSIFIER_CONFIG.MODEL}:generateContent?key=${apiKey}`;
 
+  // Format the items into a numbered list
+  const itemsList = itemsToClassify.map((it, index) => 
+    `ID: ${index} | Merchant: "${it.merchant}" | Item: "${it.item || 'N/A'}"`
+  ).join("\n");
+
   const prompt = `
-    Analyze this transaction.
-    Merchant: "${merchant}"
-    Item Description (if available): "${item || 'N/A'}"
+    Analyze the following list of transactions.
     
-    TASK 1: Determine what this transaction actually is based on the merchant name and/or item description.
+    ${itemsList}
+    
+    TASK 1: Determine what each transaction actually is based on the merchant name and/or item description.
     
     TASK 2: Assign the best Category and Subcategory from the PROVIDED LIST below based on the actual service or product.
     - Match the Category name EXACTLY (including emojis).
     - Match the Subcategory name EXACTLY.
     - If unsure, pick the most logical one.
-    - Return ONLY a JSON object: {"category": "Category Name", "subcategory": "Subcategory Name"}.
-
+    
     LIST OF VALID OPTIONS:
     ${schema}
+
+    Return ONLY a JSON array of objects, where each object corresponds to a transaction in the exact order they were provided.
+    The output MUST match this JSON schema:
+    [
+      { "id": 0, "category": "Category Name", "subcategory": "Subcategory Name" },
+      { "id": 1, "category": "Category Name", "subcategory": "Subcategory Name" }
+    ]
   `;
 
   const options = {
@@ -125,7 +160,8 @@ function askGeminiForCategory(merchant, item, schema) {
     "payload": JSON.stringify({ 
       "contents": [{ "parts": [{ "text": prompt }] }],
       "generationConfig": {
-        "temperature": 0.1 // Lower temperature for more consistent results
+        "temperature": 0.1,
+        "responseMimeType": "application/json"
       }
     }),
     "muteHttpExceptions": true
@@ -145,13 +181,5 @@ function askGeminiForCategory(merchant, item, schema) {
     throw new Error("No candidates returned from Gemini.");
   }
 
-  let resultText = json.candidates[0].content.parts[0].text;
-  
-  // Robust JSON extraction (handles markdown blocks)
-  const jsonMatch = resultText.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
-    return JSON.parse(jsonMatch[0]);
-  } else {
-    throw new Error(`Could not parse JSON from Gemini response: ${resultText}`);
-  }
+  return JSON.parse(json.candidates[0].content.parts[0].text);
 }

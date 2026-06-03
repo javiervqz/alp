@@ -461,3 +461,8 @@ function onEdit(event) {
     sheet.deleteRow(row);
   }
 }
+
+// Export for local testing
+if (typeof module !== 'undefined') {
+  module.exports = { Parsers };
+}

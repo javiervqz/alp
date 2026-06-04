@@ -9,7 +9,9 @@ const SUPPORTED_SENDERS = [
   "nomina@ctimex.com",
   "capitalone@notification.capitalone.com",
   "ventasecom@bebbia.com",
-  "contacto@parcoapp.com"
+  "notificaciones@bebbia.com",
+  "contacto@parcoapp.com",
+  "googleplay-noreply@google.com"
 ];
 
 const SUPPORTED_FACTURA_SENDERS = [
@@ -89,13 +91,13 @@ function automateSpendingRecord() {
             row.merchant.toLowerCase().includes(keyword.toLowerCase())
           );
 
-          ledgerManager.appendTransaction(context.date, row.type, row.merchant, row.item || "", row.amount, row.currency, row.account || "");
+          ledgerManager.appendTransaction(context.date, row.type, row.merchant, row.item || "", row.amount, row.currency, row.account || "", row.formula);
           if (row.type === "Expense") {
             mappingStore.addIfNeeded(row.merchant, row.item || "");
           }
 
           if (isGrocery) {
-            groceryManager.appendTransaction(context.date, row.type, row.merchant, row.item || "", row.amount, row.currency, row.account || "");
+            groceryManager.appendTransaction(context.date, row.type, row.merchant, row.item || "", row.amount, row.currency, row.account || "", row.formula);
           }
         });
 
@@ -149,6 +151,13 @@ const ParserRegistry = [
     parse: (context) => {
       const result = Parsers.parco(context.bodyHtml);
       return { success: result.amount > 0, type: "Expense", merchant: result.merchant, amount: result.amount, currency: "MXN", account: result.account, isNomina: false };
+    }
+  },
+  {
+    match: (context) => context.from.includes("googleplay-noreply@google.com"),
+    parse: (context) => {
+      const result = Parsers.googlePlay(context.body, context.bodyHtml);
+      return { success: result.amount > 0, type: "Expense", merchant: result.merchant, amount: result.amount, currency: "USD", account: result.account, isNomina: false, formula: result.formula };
     }
   }
 ];
@@ -232,6 +241,64 @@ const Parsers = {
       amount: amount,
       account: "4996"
     };
+  },
+
+  googlePlay: function(body, bodyHtml) {
+    const text = body || bodyHtml || "";
+    
+    // 1. Amount (Total)
+    const amountMatch = text.match(/Total:?\s*(?:<\/?[^>]+>)*\s*\$?([\d,.]+)/i);
+    let amount = amountMatch ? parseFloat(amountMatch[1].replace(/,/g, '')) : 0;
+    
+    // 2. Account / Payment Method
+    const accountMatch = text.match(/Payment method:?[\s\S]*?(\d{4})/i);
+    const account = accountMatch ? accountMatch[1] : "";
+    
+    // 3. Merchant / Item / Developer
+    const itemMatch = text.match(/Item\s+Price\s*(?:<\/?[^>]+>)*\s*\r?\n\s*([^$\n\r]+?)(?:\s*(?:<\/?[^>]+>)*\s*\$|\r?\n)/i) ||
+                      text.match(/Item\s*(?:<\/?[^>]+>)*\s*Price\s*(?:<\/?[^>]+>)*\s*([^$\n\r]+?)(?:\s*(?:<\/?[^>]+>)*\s*\$)/i);
+    
+    let merchant = "Google Play";
+    if (itemMatch) {
+      merchant = itemMatch[1].replace(/<\/?[^>]+(>|$)/g, "").replace(/\s+/g, " ").trim();
+      merchant = merchant.replace(/\s*\/month\s*/i, "").replace(/\s*\/year\s*/i, "");
+      if (!merchant.toLowerCase().includes("google play")) {
+        merchant += " (Google Play)";
+      }
+    } else {
+      const developerMatch = text.match(/subscription from (.+?) on Google Play/i);
+      if (developerMatch) {
+        merchant = `Google Play - ${developerMatch[1].trim()}`;
+      }
+    }
+
+    // 4. Currency Detection & Conversion (MXN to USD)
+    const isMxn = text.includes("VAT") || text.includes("IVA") || amount > 50;
+    let formula = null;
+    if (isMxn) {
+      const originalAmountStr = amountMatch ? amountMatch[1].replace(/,/g, '') : amount.toString();
+      formula = `=${originalAmountStr} / GOOGLEFINANCE("CURRENCY:USDMXN")`;
+      let mxnToUsdRate = 1 / 20; // Default fallback
+      try {
+        if (typeof UrlFetchApp !== 'undefined') {
+          const response = UrlFetchApp.fetch("https://open.er-api.com/v6/latest/USD");
+          const data = JSON.parse(response.getContentText());
+          if (data && data.rates && data.rates.MXN) {
+            mxnToUsdRate = 1 / data.rates.MXN;
+          }
+        }
+      } catch (e) {
+        console.error("Failed to fetch exchange rate, using fallback: " + e);
+      }
+      amount = Math.round((amount * mxnToUsdRate) * 100) / 100;
+    }
+    
+    return {
+      merchant: merchant,
+      amount: amount,
+      account: account,
+      formula: formula
+    };
   }
 };
 
@@ -292,15 +359,16 @@ class LedgerManager {
     });
   }
 
-  appendTransaction(date, type, merchant, item, amount, currency, account) {
+  appendTransaction(date, type, merchant, item, amount, currency, account, formula = null) {
     if (this.isDuplicate(date, type, merchant, item, amount, currency)) {
       console.log(`Skipping duplicate transaction: ${merchant} | ${item} for ${amount} ${currency}`);
       return false; // Not added
     }
     
+    const writeAmount = formula || amount;
     const rowData = this.isLedger 
-      ? [false, date, type, merchant, item || "", amount, currency, account || ""]
-      : [date, type, merchant, item || "", amount, currency, account || ""];
+      ? [false, date, type, merchant, item || "", writeAmount, currency, account || ""]
+      : [date, type, merchant, item || "", writeAmount, currency, account || ""];
       
     // Smart append to avoid skipping over pre-filled checkbox columns
     const lastRow = this.sheet.getLastRow();
